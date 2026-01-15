@@ -7,6 +7,7 @@ Uses proper column names and analyzes the full panel structure
 import pandas as pd
 import numpy as np
 import sys
+import os
 
 def analyze_panel(filepath):
     """Comprehensive geographic and temporal analysis"""
@@ -290,6 +291,51 @@ def analyze_panel(filepath):
     print("\n")
 
     # ========================================================================
+    # EXPORT DETAILED CROSSTABS TO EXCEL
+    # ========================================================================
+
+    print("-" * 120)
+    print("EXPORTING DETAILED CROSSTABS TO EXCEL")
+    print("-" * 120)
+    print()
+
+    # Determine output directory (relative to script location)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(os.path.dirname(os.path.dirname(script_dir)), 'output')
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 4.5 - Subcounty by Year-Month (Unique Households)
+    print("Generating Subcounty × Year-Month crosstab (Unique Households)...")
+    subcounty_ym_hh = df_panel.groupby([subcounty_col, 'year_month'])['hh_identifier'].nunique().unstack(fill_value=0)
+    subcounty_ym_hh.loc['Total'] = subcounty_ym_hh.sum()
+    subcounty_ym_hh['Total'] = subcounty_ym_hh.sum(axis=1)
+
+    # Export to Excel
+    subcounty_excel_file = os.path.join(output_dir, 'subcounty_by_yearmonth_unique_households.xlsx')
+    subcounty_ym_hh.to_excel(subcounty_excel_file, sheet_name='Subcounty_YearMonth')
+    print(f"  [OK] Exported to: {subcounty_excel_file}")
+    print(f"  Dimensions: {len(subcounty_ym_hh)} subcounties × {len(subcounty_ym_hh.columns)} periods")
+    print()
+
+    # 4.6 - Ward by Year-Month (Unique Households)
+    print("Generating Ward × Year-Month crosstab (Unique Households)...")
+    ward_ym_hh = df_panel.groupby([ward_col, 'year_month'])['hh_identifier'].nunique().unstack(fill_value=0)
+    ward_ym_hh.loc['Total'] = ward_ym_hh.sum()
+    ward_ym_hh['Total'] = ward_ym_hh.sum(axis=1)
+
+    # Export to Excel
+    ward_excel_file = os.path.join(output_dir, 'ward_by_yearmonth_unique_households.xlsx')
+    ward_ym_hh.to_excel(ward_excel_file, sheet_name='Ward_YearMonth')
+    print(f"  [OK] Exported to: {ward_excel_file}")
+    print(f"  Dimensions: {len(ward_ym_hh)} wards × {len(ward_ym_hh.columns)} periods")
+    print()
+
+    print("-" * 120)
+    print()
+
+    # ========================================================================
     # GEOGRAPHIC HIERARCHY
     # ========================================================================
 
@@ -331,6 +377,158 @@ def analyze_panel(filepath):
         for lz in sorted(lz_list):
             n_obs = len(df_panel[(df_panel[county_col] == county) & (df_panel[livelihood_col] == lz)])
             print(f"      - {str(lz):<40s}: {n_obs:5,} obs")
+    print()
+
+    # ========================================================================
+    # WARD-LEVEL TEMPORAL ANALYSIS
+    # ========================================================================
+
+    print("=" * 120)
+    print("5A. WARD-LEVEL TEMPORAL ANALYSIS")
+    print("=" * 120)
+    print()
+
+    # 5A.1 - Wards per month
+    print("-" * 120)
+    print("5A.1 WARDS OBSERVED PER MONTH (Across All Years)")
+    print("-" * 120)
+
+    month_order = ['January', 'February', 'March', 'April', 'May', 'June',
+                   'July', 'August', 'September', 'October', 'November', 'December']
+    wards_by_month = df_panel.groupby(month_col)[ward_col].nunique()
+
+    print(f"\n{'Month':<20s} {'Unique Wards':>15s}")
+    print("-" * 40)
+    for month in month_order:
+        if month in wards_by_month.index:
+            count = wards_by_month[month]
+            print(f"{month:<20s} {count:>15,}")
+    print()
+
+    # 5A.2 - Average households per ward per month
+    print("-" * 120)
+    print("5A.2 AVERAGE HOUSEHOLDS PER WARD PER MONTH")
+    print("-" * 120)
+
+    # Calculate ward-month-household counts
+    ward_month_hh = df_panel.groupby([ward_col, month_col])['hh_identifier'].nunique().reset_index()
+    ward_month_hh.columns = ['ward', 'month', 'unique_hh']
+
+    # Average per ward across months
+    avg_hh_per_ward = ward_month_hh.groupby('ward')['unique_hh'].mean().sort_values(ascending=False)
+
+    # Active months per ward
+    months_per_ward = ward_month_hh.groupby('ward')['month'].count()
+
+    # Total observations per ward
+    obs_per_ward = df_panel.groupby(ward_col).size()
+
+    # Distribution statistics
+    print("\nDistribution of Average Households per Ward per Month:")
+    print(f"  Mean:       {avg_hh_per_ward.mean():>7.2f} households")
+    print(f"  Median:     {avg_hh_per_ward.median():>7.2f} households")
+    print(f"  Min:        {avg_hh_per_ward.min():>7.2f} households")
+    print(f"  Max:        {avg_hh_per_ward.max():>7.2f} households")
+    print(f"  25th %ile:  {avg_hh_per_ward.quantile(0.25):>7.2f} households")
+    print(f"  75th %ile:  {avg_hh_per_ward.quantile(0.75):>7.2f} households")
+    print()
+
+    # Top 25 wards
+    print(f"\nTop 25 Wards by Average Households per Month:")
+    print(f"{'Ward':<40s} {'Avg HH/Month':>15s} {'Total Obs':>15s} {'Active Months':>15s}")
+    print("-" * 90)
+    for ward in avg_hh_per_ward.head(25).index:
+        avg_hh = avg_hh_per_ward[ward]
+        total_obs = obs_per_ward[ward]
+        active_months = months_per_ward[ward]
+        print(f"{str(ward):<40s} {avg_hh:>15.2f} {total_obs:>15,} {active_months:>15,}")
+    print()
+
+    # Distribution histogram
+    bins = [0, 10, 20, 30, 40, 50, float('inf')]
+    labels = ['0-10', '11-20', '21-30', '31-40', '41-50', '50+']
+    ward_distribution = pd.cut(avg_hh_per_ward, bins=bins, labels=labels).value_counts().sort_index()
+
+    print("\nDistribution Histogram:")
+    print(f"{'Avg HH Range':<20s} {'Number of Wards':>20s} {'% of Wards':>15s}")
+    print("-" * 60)
+    for range_label, count in ward_distribution.items():
+        pct = (count / len(avg_hh_per_ward)) * 100
+        print(f"{range_label:<20s} {count:>20,} {pct:>14.1f}%")
+    print()
+
+    # ========================================================================
+    # SUBCOUNTY-LEVEL TEMPORAL ANALYSIS
+    # ========================================================================
+
+    print("=" * 120)
+    print("5B. SUBCOUNTY-LEVEL TEMPORAL ANALYSIS")
+    print("=" * 120)
+    print()
+
+    # 5B.1 - Subcounties per month
+    print("-" * 120)
+    print("5B.1 SUBCOUNTIES OBSERVED PER MONTH (Across All Years)")
+    print("-" * 120)
+
+    subcounties_by_month = df_panel.groupby(month_col)[subcounty_col].nunique()
+
+    print(f"\n{'Month':<20s} {'Unique Subcounties':>20s}")
+    print("-" * 45)
+    for month in month_order:
+        if month in subcounties_by_month.index:
+            count = subcounties_by_month[month]
+            print(f"{month:<20s} {count:>20,}")
+    print()
+
+    # 5B.2 - Average households per subcounty per month
+    print("-" * 120)
+    print("5B.2 AVERAGE HOUSEHOLDS PER SUBCOUNTY PER MONTH")
+    print("-" * 120)
+
+    # Calculate subcounty-month-household counts
+    subcounty_month_hh = df_panel.groupby([subcounty_col, month_col])['hh_identifier'].nunique().reset_index()
+    subcounty_month_hh.columns = ['subcounty', 'month', 'unique_hh']
+
+    # Average per subcounty across months
+    avg_hh_per_subcounty = subcounty_month_hh.groupby('subcounty')['unique_hh'].mean().sort_values(ascending=False)
+
+    # Active months per subcounty
+    months_per_subcounty = subcounty_month_hh.groupby('subcounty')['month'].count()
+
+    # Total observations per subcounty
+    obs_per_subcounty = df_panel.groupby(subcounty_col).size()
+
+    # Distribution statistics
+    print("\nDistribution of Average Households per Subcounty per Month:")
+    print(f"  Mean:       {avg_hh_per_subcounty.mean():>7.2f} households")
+    print(f"  Median:     {avg_hh_per_subcounty.median():>7.2f} households")
+    print(f"  Min:        {avg_hh_per_subcounty.min():>7.2f} households")
+    print(f"  Max:        {avg_hh_per_subcounty.max():>7.2f} households")
+    print(f"  25th %ile:  {avg_hh_per_subcounty.quantile(0.25):>7.2f} households")
+    print(f"  75th %ile:  {avg_hh_per_subcounty.quantile(0.75):>7.2f} households")
+    print()
+
+    # Top 25 subcounties
+    print(f"\nTop 25 Subcounties by Average Households per Month:")
+    print(f"{'Subcounty':<40s} {'Avg HH/Month':>15s} {'Total Obs':>15s} {'Active Months':>15s}")
+    print("-" * 90)
+    for subcounty in avg_hh_per_subcounty.head(25).index:
+        avg_hh = avg_hh_per_subcounty[subcounty]
+        total_obs = obs_per_subcounty[subcounty]
+        active_months = months_per_subcounty[subcounty]
+        print(f"{str(subcounty):<40s} {avg_hh:>15.2f} {total_obs:>15,} {active_months:>15,}")
+    print()
+
+    # Distribution histogram
+    subcounty_distribution = pd.cut(avg_hh_per_subcounty, bins=bins, labels=labels).value_counts().sort_index()
+
+    print("\nDistribution Histogram:")
+    print(f"{'Avg HH Range':<20s} {'Number of Subcounties':>25s} {'% of Subcounties':>20s}")
+    print("-" * 70)
+    for range_label, count in subcounty_distribution.items():
+        pct = (count / len(avg_hh_per_subcounty)) * 100
+        print(f"{range_label:<20s} {count:>25,} {pct:>19.1f}%")
     print()
 
     # ========================================================================
